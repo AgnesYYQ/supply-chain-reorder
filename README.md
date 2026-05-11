@@ -1,13 +1,26 @@
 # Supply Chain Reorder Agent
 
-A production-grade, agentic AI system to help supply chain planners decide how much inventory to reorder. Built with LangGraph, modular nodes, and explainable state management.
+An agentic AI system to help supply chain planners decide how much inventory to reorder. Built with LangGraph for workflow orchestration, modular nodes, and explainable state management.
 
 ## Features
-- Modular agent with nodes for data gathering, forecasting, optimization, human review, and execution
+- LangGraph workflow for modular, extensible agent logic
+- Nodes for data ingestion (API/vector DB), ML forecasting (API), optimization, human review, and execution
 - State management for explainability and traceability
-- Stubs for integration with ERP APIs, ML models, and data sources
+- Ready for integration with ERP APIs, ML models, and data sources
 - Configurable business rules
 - Unit tests and production-ready structure
+
+## Workflow Overview
+
+The agent is orchestrated by LangGraph. Each step is a node in the workflow:
+
+1. **Data Ingestion**: Fetches sales and inventory data from an API or vector database (stubbed, ready for integration)
+2. **ML Forecasting**: Calls an external ML model API for demand forecasting (stubbed, ready for integration)
+3. **Optimization**: Calculates reorder quantity using EOQ and safety stock logic
+4. **Review**: Flags large orders for human review
+5. **Execution**: Simulates ERP API call for order execution
+
+All calculations and decisions are logged for explainability. You can extend any node to connect to real APIs, databases, or ML endpoints as needed.
 
 ## Setup
 1. Clone the repo
@@ -16,20 +29,17 @@ A production-grade, agentic AI system to help supply chain planners decide how m
 4. Run the agent: `python src/main.py`
 
 ## Project Structure
-- `src/` – Agent logic, nodes, state management
+- `src/` – Agent logic, LangGraph workflow, state management
 - `tests/` – Unit tests
 - `config/` – Configuration files
 - `.github/` – Copilot instructions
 
-
-## Architecture Diagrams
-
-### Agentic Flow
+## Architecture Diagram
 
 ```mermaid
 flowchart TD
-	A["Gather Data"] --> B["Forecast Demand"]
-	B --> C["Optimize Order Quantity"]
+	A["Data Ingestion (API/Vector DB)"] --> B["ML Forecast (API)"]
+	B --> C["Optimize"]
 	C --> D["Review (Human Approval)"]
 	D --> E["Execute (ERP API)"]
 	E --> F["State/Decision Log"]
@@ -42,10 +52,28 @@ flowchart TD
 	style E fill:#bbf,stroke:#222,stroke-width:2px,color:#111
 ```
 
-### Python Class Architecture
+## Extending the Agent
 
-```mermaid
-classDiagram
+- **Data Ingestion**: Integrate with your API or vector DB by editing `ingest_data` in `src/agent_langgraph.py`.
+- **ML Forecasting**: Integrate with your ML model API by editing `ml_forecast` in `src/agent_langgraph.py`.
+- **Optimization, Review, Execution**: Update business logic or connect to real systems as needed.
+
+## Example Node (ML Forecast)
+
+```python
+def ml_forecast(state: AgentState, **kwargs):
+	# Example: Call an external ML model API for forecasting
+	response = requests.post("https://ml.example.com/forecast", json={
+		"sales_history": state.data["sales_history"],
+		"lead_time": state.data["lead_time"]
+	})
+	forecast = response.json()["forecast"]
+	state.data["forecast"] = forecast
+	state.log(f"ML forecast for next {state.data['lead_time']} days: {forecast}")
+	return state
+```
+
+---
 	class SupplyChainReorderAgent {
 		-AgentState state
 		-list nodes
