@@ -40,8 +40,9 @@ All calculations and decisions are logged for explainability. You can extend any
 flowchart TD
 	A["Data Ingestion (API/Vector DB)"] --> B["ML Forecast (API)"]
 	B --> C["Optimize"]
-	C --> D["Review (Human Approval)"]
-	D --> E["Execute (ERP API)"]
+	C -->|cost > 50k| D["Review (Human Approval)"]
+	C -->|cost ≤ 50k| E["Execute (ERP API)"]
+	D --> E
 	E --> F["State/Decision Log"]
 	F -.->|Explainability| A
 	style F fill:#f9f,stroke:#222,stroke-width:2px,color:#111
