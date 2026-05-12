@@ -16,7 +16,7 @@ The agent is orchestrated by LangGraph. Each step is a node in the workflow:
 
 1. **Data Ingestion**: Fetches sales and inventory data from an API or vector database (stubbed, ready for integration)
 2. **ML Forecasting**: Calls an external ML model API for demand forecasting (stubbed, ready for integration)
-3. **Optimization**: Calculates reorder quantity using EOQ and safety stock logic
+3. **Planner**: Calculates reorder quantity using EOQ and safety stock logic
 4. **Review**: Flags large orders for human review
 5. **Execution**: Simulates ERP API call for order execution
 
@@ -39,7 +39,7 @@ All calculations and decisions are logged for explainability. You can extend any
 ```mermaid
 flowchart TD
 	A["Data Ingestion (API/Vector DB)"] --> B["ML Forecast (API)"]
-	B --> C["Optimize"]
+	B --> C["Planner"]
 	C -->|cost > 50k| D["Review (Human Approval)"]
 	C -->|cost ≤ 50k| E["Execute (ERP API)"]
 	D --> E

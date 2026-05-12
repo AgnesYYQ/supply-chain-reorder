@@ -7,8 +7,8 @@ def agent_ingestion(state: dict, **kwargs):
     state.setdefault("decision_log", []).append("Ingestion: Parsed ERP alert.")
     return state
 
-# --- Agent B: Simulation ---
-def agent_simulation(state: dict, **kwargs):
+# --- Agent B: ML Forecast ---
+def ml_forecast_agent(state: dict, **kwargs):
     # If sales_history and lead_time are present, try a neural network forecast (LSTM)
     sales = state.get("sales_history")
     lead_time = state.get("lead_time", 2)
@@ -69,14 +69,14 @@ def agent_executor(state: dict, **kwargs):
 def build_multi_agent_graph():
     graph = StateGraph(dict)
     graph.add_node("ingestion", agent_ingestion)
-    graph.add_node("simulation", agent_simulation)
+    graph.add_node("ml_forecast", ml_forecast_agent)
     graph.add_node("planner", agent_planner)
     graph.add_node("communicator", agent_communicator)
     graph.add_node("executor", agent_executor)
 
     # Linear flow: Ingestion -> Simulation -> Planner
-    graph.add_edge("ingestion", "simulation")
-    graph.add_edge("simulation", "planner")
+    graph.add_edge("ingestion", "ml_forecast")
+    graph.add_edge("ml_forecast", "planner")
 
     # Conditional: If cost > 50k, go to Communicator, else Executor
     def planner_router(state: dict, **kwargs):
