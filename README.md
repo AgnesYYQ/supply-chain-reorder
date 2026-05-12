@@ -52,60 +52,40 @@ flowchart TD
 	style E fill:#bbf,stroke:#222,stroke-width:2px,color:#111
 ```
 
-## Extending the Agent
+## Extending the Multi-Agent Workflow
 
-- **Data Ingestion**: Integrate with your API or vector DB by editing `ingest_data` in `src/agent_langgraph.py`.
-- **ML Forecasting**: Integrate with your ML model API by editing `ml_forecast` in `src/agent_langgraph.py`.
-- **Optimization, Review, Execution**: Update business logic or connect to real systems as needed.
+- **Data Ingestion**: Integrate with your API or vector DB by editing the `ingestion_agent` node in `src/multi_agent_supply_chain.py`.
+- **Simulation/Forecasting**: Integrate with your ML model API by editing the `simulation_agent` node in `src/multi_agent_supply_chain.py`.
+- **Planning/Optimization, Review, Execution**: Update business logic or connect to real systems by editing the corresponding agent nodes in `src/multi_agent_supply_chain.py`.
 
-## Example Node (ML Forecast)
+## Example Node (Simulation Agent)
 
 ```python
-def ml_forecast(state: AgentState, **kwargs):
+def simulation_agent(state: dict, **kwargs):
 	# Example: Call an external ML model API for forecasting
 	response = requests.post("https://ml.example.com/forecast", json={
-		"sales_history": state.data["sales_history"],
-		"lead_time": state.data["lead_time"]
+		"sales_history": state["sales_history"],
+		"lead_time": state["lead_time"]
 	})
 	forecast = response.json()["forecast"]
-	state.data["forecast"] = forecast
-	state.log(f"ML forecast for next {state.data['lead_time']} days: {forecast}")
+	state["forecast"] = forecast
+	# Optionally log or update state as needed
 	return state
 ```
 
 ---
-	class SupplyChainReorderAgent {
-		-AgentState state
-		-list nodes
-		+run()
-	}
-	class AgentState {
-		-dict data
-		-list decision_log
-		+log(message)
-		+explain()
-	}
-	class gather_data_node {
-		+__call__(state)
-	}
-	class forecast_node {
-		+__call__(state)
-	}
-	class optimize_node {
-		+__call__(state)
-	}
-	class review_node {
-		+__call__(state)
-	}
-	class execute_node {
-		+__call__(state)
-	}
-	SupplyChainReorderAgent --> AgentState
-	SupplyChainReorderAgent --> gather_data_node
-	SupplyChainReorderAgent --> forecast_node
-	SupplyChainReorderAgent --> optimize_node
-	SupplyChainReorderAgent --> review_node
-	SupplyChainReorderAgent --> execute_node
+	## Multi-Agent Architecture Overview
+
+	The new workflow is implemented in `src/multi_agent_supply_chain.py` using LangGraph's StateGraph. Each agent is a node in the workflow:
+
+	- **ingestion_agent**: Handles data ingestion from APIs or vector DBs
+	- **simulation_agent**: Performs forecasting or simulation
+	- **planning_agent**: Optimizes reorder decisions
+	- **communication_agent**: Handles human review/approval
+	- **execution_agent**: Executes orders via ERP/API
+
+	You can extend or customize each agent node as needed. See the code scaffold in `src/multi_agent_supply_chain.py` for details.
+	// The old node-based class diagram has been removed. See the section above for the new multi-agent architecture and agent node descriptions.
 	AgentState <.. gather_data_node : uses
 	AgentState <.. forecast_node : uses
 	AgentState <.. optimize_node : uses
