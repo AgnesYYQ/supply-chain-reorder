@@ -86,11 +86,10 @@ def simulation_agent(state: dict, **kwargs):
 
 	You can extend or customize each agent node as needed. See the code scaffold in `src/multi_agent_supply_chain.py` for details.
 	// The old node-based class diagram has been removed. See the section above for the new multi-agent architecture and agent node descriptions.
-	AgentState <.. gather_data_node : uses
-	AgentState <.. forecast_node : uses
-	AgentState <.. optimize_node : uses
-	AgentState <.. review_node : uses
-	AgentState <.. execute_node : uses
+
+	### Using Neural Networks for Forecasting
+
+	You can implement the simulation/forecast agent using a neural network (e.g., LSTM or RNN) with TensorFlow/Keras or PyTorch for advanced time series forecasting. This approach is suitable for complex, non-linear patterns and large datasets. See the code for the simulation_agent in `src/multi_agent_supply_chain.py` for where to integrate your model.
 ```
 
 ## Usage

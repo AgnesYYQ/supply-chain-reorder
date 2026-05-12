@@ -9,7 +9,36 @@ def agent_ingestion(state: dict, **kwargs):
 
 # --- Agent B: Simulation ---
 def agent_simulation(state: dict, **kwargs):
-    # Look up mitigation strategies, run what-if scenarios
+    # If sales_history and lead_time are present, try a neural network forecast (LSTM)
+    sales = state.get("sales_history")
+    lead_time = state.get("lead_time", 2)
+    if sales and isinstance(sales, list) and len(sales) > lead_time:
+        try:
+            import numpy as np
+            from tensorflow import keras
+            from tensorflow.keras import layers
+            # Prepare data: use last N-1 as input, last as target
+            X = np.array(sales[:-1]).reshape(-1, 1, 1)
+            y = np.array(sales[1:]).reshape(-1, 1)
+            # Build simple LSTM model
+            model = keras.Sequential([
+                layers.LSTM(8, input_shape=(1, 1)),
+                layers.Dense(1)
+            ])
+            model.compile(optimizer='adam', loss='mse')
+            model.fit(X, y, epochs=20, verbose=0)
+            # Forecast next value using last value as input
+            last_val = np.array(sales[-1]).reshape(1, 1, 1)
+            forecast = float(model.predict(last_val, verbose=0)[0][0])
+            state["forecast"] = forecast
+            state.setdefault("decision_log", []).append(f"Simulation: LSTM forecasted demand = {forecast:.2f}")
+        except ImportError:
+            # Fallback: mean of last 'lead_time' sales
+            forecast = sum(sales[-lead_time:]) / lead_time
+            state["forecast"] = forecast
+            state.setdefault("decision_log", []).append(f"Simulation: Fallback mean forecast = {forecast}")
+    else:
+        state.setdefault("decision_log", []).append("Simulation: No sales data, skipped forecast.")
     state["mitigation_options"] = ["reroute_logistics", "change_supplier"]
     state.setdefault("decision_log", []).append("Simulation: Ran what-if scenarios.")
     return state
