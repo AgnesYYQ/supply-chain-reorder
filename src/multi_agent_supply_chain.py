@@ -1,14 +1,56 @@
+
 from langgraph.graph import StateGraph
+# --- Vector DB & Embedding Setup ---
+import chromadb
+from chromadb.utils import embedding_functions
+from sentence_transformers import SentenceTransformer
+
+# Initialize Chroma client and collection
+chroma_client = chromadb.Client()
+collection = chroma_client.get_or_create_collection("supply_chain_docs")
+
+# Use a local sentence-transformers model for embedding
+embedder = SentenceTransformer("all-MiniLM-L6-v2")
+
+def chunk_text(text, chunk_size=50, overlap=10):
+    """Chunk text into word-based chunks with overlap."""
+    words = text.split()
+    chunks = []
+    for i in range(0, len(words), chunk_size - overlap):
+        chunk = " ".join(words[i:i+chunk_size])
+        if chunk:
+            chunks.append(chunk)
+    return chunks
 
 # --- Agent A: Ingestion ---
+
 def agent_ingestion(state: dict, **kwargs):
-    # Parse ERP disruption alert, extract disruption info
+    # Simulate parsing ERP alert and extracting disruption info
+    alert_text = state.get("erp_alert", "Supplier X delayed shipment due to weather. Impact: $60,000.")
     state["disruption"] = {"type": "supplier_delay", "cost": 60000}
-    state.setdefault("decision_log", []).append("Ingestion: Parsed ERP alert.")
+    # Chunk and embed alert text, store in Chroma
+    chunks = chunk_text(alert_text)
+    embeddings = embedder.encode(chunks).tolist()
+    ids = [f"alert_{i}" for i in range(len(chunks))]
+    # Store in Chroma (idempotent for demo)
+    collection.upsert(documents=chunks, embeddings=embeddings, ids=ids)
+    state["vector_ids"] = ids
+    state.setdefault("decision_log", []).append(f"Ingestion: Parsed ERP alert, chunked and stored {len(chunks)} chunks in vector DB.")
     return state
 
 # --- Agent B: ML Forecast ---
+
 def ml_forecast_agent(state: dict, **kwargs):
+    # Retrieve relevant context from vector DB for this disruption
+    disruption = state.get("disruption", {})
+    query = disruption.get("type", "supplier_delay")
+    # Embed query and search Chroma
+    query_emb = embedder.encode([query])[0].tolist()
+    results = collection.query(query_embeddings=[query_emb], n_results=2)
+    retrieved_chunks = results.get("documents", [[]])[0]
+    state["retrieved_context"] = retrieved_chunks
+    state.setdefault("decision_log", []).append(f"ML Agent: Retrieved {len(retrieved_chunks)} relevant chunks from vector DB.")
+
     # If sales_history and lead_time are present, try a neural network forecast (LSTM)
     sales = state.get("sales_history")
     lead_time = state.get("lead_time", 2)
