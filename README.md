@@ -28,10 +28,85 @@ All calculations and decisions are logged for explainability. You can extend any
 3. Configure settings in `config/`
 4. Run the agent: `python src/main.py`
 
+## Container Packaging
+
+This repo now includes a `Dockerfile` for packaging the agent as a container image.
+
+Build locally:
+
+```bash
+docker build -t supply-chain-reorder:latest .
+docker run --rm supply-chain-reorder:latest
+```
+
+The container runs one full multi-agent workflow and exits (batch-style), which is a good fit for Kubernetes `Job` execution and SQS-driven worker patterns.
+
+## Deploying to AWS EKS (Terraform + Helm)
+
+For repeatable environments, use:
+
+- Terraform in `infra/terraform/` for AWS infrastructure (ECR, SQS, DLQ, IRSA role)
+- Helm chart in `deploy/helm/supply-chain-worker/` for Kubernetes deployment
+
+### 1) Provision AWS infrastructure with Terraform
+
+```bash
+cd infra/terraform
+cp terraform.tfvars.example terraform.tfvars
+
+# Edit terraform.tfvars with your EKS OIDC provider values and environment.
+terraform init
+terraform plan
+terraform apply
+
+export ECR_REPOSITORY_URL=$(terraform output -raw ecr_repository_url)
+export SQS_QUEUE_URL=$(terraform output -raw sqs_queue_url)
+export SQS_WORKER_IRSA_ROLE_ARN=$(terraform output -raw sqs_worker_irsa_role_arn)
+cd ../..
+```
+
+### 2) Build and push app image
+
+```bash
+export IMAGE_TAG=$(git rev-parse --short HEAD)
+aws ecr get-login-password --region us-east-1 \
+	| docker login --username AWS --password-stdin "${ECR_REPOSITORY_URL%/*}"
+
+docker build -t supply-chain-reorder:$IMAGE_TAG .
+docker tag supply-chain-reorder:$IMAGE_TAG "$ECR_REPOSITORY_URL:$IMAGE_TAG"
+docker push "$ECR_REPOSITORY_URL:$IMAGE_TAG"
+```
+
+### 3) Deploy worker with Helm
+
+```bash
+helm upgrade --install supply-chain-worker deploy/helm/supply-chain-worker \
+	--namespace supply-chain \
+	--create-namespace \
+	--set image.repository="$ECR_REPOSITORY_URL" \
+	--set image.tag="$IMAGE_TAG" \
+	--set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$SQS_WORKER_IRSA_ROLE_ARN" \
+	--set config.AWS_REGION="us-east-1" \
+	--set config.SQS_QUEUE_URL="$SQS_QUEUE_URL" \
+	--set secretRef.name="supply-chain-agent-secrets"
+```
+
+### 4) Send an event to SQS and verify
+
+```bash
+aws sqs send-message --queue-url "$SQS_QUEUE_URL" --region us-east-1 --message-body '{"erp_alert":"Supplier X delayed shipment due to weather. Impact: $60,000.","sales_history":[120,132,128,140,138],"lead_time":2}'
+
+kubectl get deploy -n supply-chain
+kubectl get pods -n supply-chain -l app.kubernetes.io/name=supply-chain-worker
+kubectl logs -n supply-chain deploy/supply-chain-worker-supply-chain-worker --tail=200
+```
+
 ## Project Structure
 - `src/` – Agent logic, LangGraph workflow, state management
 - `tests/` – Unit tests
 - `config/` – Configuration files
+- `deploy/helm/` – Helm chart for Kubernetes worker deployment
+- `infra/terraform/` – Terraform for AWS infrastructure and IRSA
 - `.github/` – Copilot instructions
 
 ## Infrastructure Diagram

@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "supply-chain-worker.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "supply-chain-worker.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "supply-chain-worker.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "supply-chain-worker.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+{{- with .Values.podLabels }}
+{{ toYaml . | indent 8 }}
+{{- end }}
+    spec:
+      serviceAccountName: {{ include "supply-chain-worker.serviceAccountName" . }}
+      containers:
+        - name: sqs-worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "src.sqs_worker"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "supply-chain-worker.fullname" . }}-config
+            - secretRef:
+                name: {{ .Values.secretRef.name }}
+          resources:
+{{ toYaml .Values.resources | indent 12 }}

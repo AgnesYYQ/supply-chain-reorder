@@ -4,3 +4,6 @@ langgraph
 pydantic
 requests
 python-dotenv
+chromadb
+sentence-transformers
+boto3

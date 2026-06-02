@@ -1,0 +1,40 @@
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+image:
+  repository: YOUR_AWS_ACCOUNT_ID.dkr.ecr.YOUR_REGION.amazonaws.com/supply-chain-reorder
+  tag: latest
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: supply-chain-sqs-worker
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::YOUR_AWS_ACCOUNT_ID:role/supply-chain-sqs-worker-irsa
+
+config:
+  APP_ENV: production
+  AWS_REGION: us-east-1
+  SQS_QUEUE_URL: https://sqs.us-east-1.amazonaws.com/YOUR_AWS_ACCOUNT_ID/supply-chain-events
+  SQS_WAIT_TIME_SECONDS: "20"
+  SQS_VISIBILITY_TIMEOUT: "120"
+  SQS_MAX_MESSAGES: "1"
+  SQS_IDLE_SLEEP_SECONDS: "2"
+  SQS_EMPTY_BACKOFF_BASE_SECONDS: "1"
+  SQS_EMPTY_BACKOFF_MAX_SECONDS: "30"
+
+secretRef:
+  # Existing secret that includes any runtime secrets required by the app.
+  name: supply-chain-agent-secrets
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+
+podLabels: {}

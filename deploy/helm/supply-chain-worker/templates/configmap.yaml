@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "supply-chain-worker.fullname" . }}-config
+  labels:
+    app.kubernetes.io/name: {{ include "supply-chain-worker.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+{{- range $key, $value := .Values.config }}
+  {{ $key }}: {{ $value | quote }}
+{{- end }}
