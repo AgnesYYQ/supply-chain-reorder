@@ -1,0 +1,33 @@
+nodeSelector:
+  node.kubernetes.io/instance-type: g5.xlarge
+
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: workload-type
+              operator: In
+              values:
+                - gpu-inference
+            - key: node.kubernetes.io/instance-type
+              operator: In
+              values:
+                - g5.xlarge
+                - g5.2xlarge
+
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: gpu-inference
+    effect: NoSchedule
+
+resources:
+  requests:
+    cpu: 1000m
+    memory: 4Gi
+    nvidia.com/gpu: 1
+  limits:
+    cpu: 2000m
+    memory: 8Gi
+    nvidia.com/gpu: 1

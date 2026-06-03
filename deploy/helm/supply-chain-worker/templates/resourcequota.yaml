@@ -1,0 +1,13 @@
+{{- if .Values.resourceQuota.enabled }}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ include "supply-chain-worker.fullname" . }}
+  namespace: {{ include "supply-chain-worker.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "supply-chain-worker.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  hard:
+{{ toYaml .Values.resourceQuota.hard | indent 4 }}
+{{- end }}

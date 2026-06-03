@@ -29,6 +29,18 @@ spec:
     spec:
       terminationGracePeriodSeconds: {{ .Values.deployment.terminationGracePeriodSeconds }}
       serviceAccountName: {{ include "supply-chain-worker.serviceAccountName" . }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+      {{- end }}
       {{- with .Values.podSecurityContext }}
       securityContext:
 {{ toYaml . | indent 8 }}

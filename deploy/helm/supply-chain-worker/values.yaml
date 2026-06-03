@@ -151,6 +151,12 @@ secretRef:
   # Existing secret that includes any runtime secrets required by the app.
   name: supply-chain-agent-secrets
 
+nodeSelector: {}
+
+affinity: {}
+
+tolerations: []
+
 resources:
   requests:
     cpu: 250m

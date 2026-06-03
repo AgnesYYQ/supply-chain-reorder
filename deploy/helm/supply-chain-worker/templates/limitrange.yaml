@@ -1,0 +1,21 @@
+{{- if .Values.limitRange.enabled }}
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: {{ include "supply-chain-worker.fullname" . }}
+  namespace: {{ include "supply-chain-worker.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "supply-chain-worker.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  limits:
+    - type: Container
+      default:
+{{ toYaml .Values.limitRange.defaults | indent 8 }}
+      defaultRequest:
+{{ toYaml .Values.limitRange.defaultRequest | indent 8 }}
+      max:
+{{ toYaml .Values.limitRange.max | indent 8 }}
+      min:
+{{ toYaml .Values.limitRange.min | indent 8 }}
+{{- end }}

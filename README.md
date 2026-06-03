@@ -127,6 +127,7 @@ helm lint deploy/helm/supply-chain-worker -f deploy/helm/supply-chain-worker/val
 helm lint deploy/helm/supply-chain-worker -f deploy/helm/supply-chain-worker/values-dev.yaml
 helm lint deploy/helm/supply-chain-worker -f deploy/helm/supply-chain-worker/values-stage.yaml
 helm lint deploy/helm/supply-chain-worker -f deploy/helm/supply-chain-worker/values-prod.yaml
+helm lint deploy/helm/supply-chain-worker -f deploy/helm/supply-chain-worker/values-gpu.yaml
 
 helm template supply-chain-worker deploy/helm/supply-chain-worker \
 	-f deploy/helm/supply-chain-worker/values-prod.yaml
@@ -144,6 +145,7 @@ The Helm chart now ships with these defaults:
 - Pod and container security contexts with non-root execution, dropped Linux capabilities, and `RuntimeDefault` seccomp
 - `NetworkPolicy` enabled by default with DNS egress plus HTTPS-only egress rules unless you narrow destinations further
 - `ResourceQuota` and `LimitRange` enabled by default to put namespace-level guardrails around CPU, memory, and pod counts
+- Configurable `nodeSelector`, `tolerations`, and `affinity` for dedicated node pools such as GPU inference workers
 
 For this worker, inbound traffic is not required by default:
 
@@ -158,7 +160,47 @@ Namespace governance notes:
 
 If you later expose an HTTP health, metrics, or admin endpoint, enable `service.enabled` and optionally `ingress.enabled` in the appropriate values file.
 
-### 6) Send an event to SQS and verify
+### 6) Dedicated GPU node placement
+
+If this worker must run only on expensive GPU nodes, split the control between the cluster and the Pod spec:
+
+1. Taint the GPU nodes so ordinary workloads are repelled by default.
+2. Label the same nodes so the worker can require those exact instances with hard node affinity.
+3. Deploy the worker with a matching toleration plus required node affinity.
+
+Example node setup:
+
+```bash
+kubectl taint nodes <gpu-node-name> dedicated=gpu-inference:NoSchedule
+kubectl label nodes <gpu-node-name> workload-type=gpu-inference
+kubectl label nodes <gpu-node-name> node.kubernetes.io/instance-type=g5.xlarge
+```
+
+The chart supports this through `nodeSelector`, `tolerations`, and `affinity`. An example overlay is provided in `deploy/helm/supply-chain-worker/values-gpu.yaml`.
+
+Deploy with it like this:
+
+```bash
+helm upgrade --install supply-chain-worker deploy/helm/supply-chain-worker \
+	--namespace supply-chain \
+	--create-namespace \
+	-f deploy/helm/supply-chain-worker/values-prod.yaml \
+	-f deploy/helm/supply-chain-worker/values-gpu.yaml \
+	--set image.repository="$ECR_REPOSITORY_URL" \
+	--set image.tag="$IMAGE_TAG" \
+	--set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$SQS_WORKER_IRSA_ROLE_ARN" \
+	--set config.AWS_REGION="us-east-1" \
+	--set config.SQS_QUEUE_URL="$SQS_QUEUE_URL" \
+	--set secretRef.name="supply-chain-agent-secrets"
+```
+
+This overlay does three things:
+
+- Adds a toleration for `dedicated=gpu-inference:NoSchedule`
+- Requires node affinity for nodes labeled `workload-type=gpu-inference`
+- Requests and limits one NVIDIA GPU via `nvidia.com/gpu: 1`
+
+### 7) Send an event to SQS and verify
 
 ```bash
 aws sqs send-message --queue-url "$SQS_QUEUE_URL" --region us-east-1 --message-body '{"erp_alert":"Supplier X delayed shipment due to weather. Impact: $60,000.","sales_history":[120,132,128,140,138],"lead_time":2}'
