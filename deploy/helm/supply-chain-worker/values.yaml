@@ -1,12 +1,104 @@
 nameOverride: ""
 fullnameOverride: ""
 
-replicaCount: 1
+replicaCount: 2
+
+deployment:
+  minReadySeconds: 10
+  revisionHistoryLimit: 10
+  terminationGracePeriodSeconds: 60
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+  lifecycle:
+    preStop:
+      enabled: true
+      sleepSeconds: 20
+  startupProbe:
+    exec:
+      command: ["python", "-c", "import src.sqs_worker"]
+    failureThreshold: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+  readinessProbe:
+    exec:
+      command: ["python", "-c", "import src.sqs_worker"]
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  livenessProbe:
+    exec:
+      command: ["python", "-c", "import src.sqs_worker"]
+    initialDelaySeconds: 20
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
 
 image:
   repository: YOUR_AWS_ACCOUNT_ID.dkr.ecr.YOUR_REGION.amazonaws.com/supply-chain-reorder
   tag: latest
   pullPolicy: IfNotPresent
+
+service:
+  enabled: false
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: supply-chain-worker.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+networkPolicy:
+  enabled: true
+  ingress:
+    enabled: false
+    from: []
+    ports: []
+  egress:
+    enabled: true
+    allowDns: true
+    dnsNamespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    dnsPodSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    rules:
+      # Keep egress tight: HTTPS only by default. Narrow destinations with `to` selectors/ipBlocks per environment.
+      - to: []
+        ports:
+          - protocol: TCP
+            port: 443
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
 
 serviceAccount:
   create: true

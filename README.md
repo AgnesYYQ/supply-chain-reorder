@@ -48,6 +48,13 @@ For repeatable environments, use:
 - Terraform in `infra/terraform/` for AWS infrastructure (ECR, SQS, DLQ, IRSA role)
 - Helm chart in `deploy/helm/supply-chain-worker/` for Kubernetes deployment
 
+Important prerequisites:
+
+- This repo does not provision the EKS cluster itself.
+- Terraform expects an existing EKS cluster OIDC provider ARN and URL for IRSA.
+- The Helm chart is designed for an SQS-driven worker, so `Service` and `Ingress` are disabled by default.
+- The chart now includes rolling updates, readiness/liveness/startup probes, `NetworkPolicy`, `PodDisruptionBudget`, and pod/container security context defaults.
+
 ### 1) Provision AWS infrastructure with Terraform
 
 ```bash
@@ -83,6 +90,7 @@ docker push "$ECR_REPOSITORY_URL:$IMAGE_TAG"
 helm upgrade --install supply-chain-worker deploy/helm/supply-chain-worker \
 	--namespace supply-chain \
 	--create-namespace \
+	-f deploy/helm/supply-chain-worker/values-prod.yaml \
 	--set image.repository="$ECR_REPOSITORY_URL" \
 	--set image.tag="$IMAGE_TAG" \
 	--set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$SQS_WORKER_IRSA_ROLE_ARN" \
@@ -91,7 +99,59 @@ helm upgrade --install supply-chain-worker deploy/helm/supply-chain-worker \
 	--set secretRef.name="supply-chain-agent-secrets"
 ```
 
-### 4) Send an event to SQS and verify
+Environment overlays are available in:
+
+- `deploy/helm/supply-chain-worker/values-dev.yaml`
+- `deploy/helm/supply-chain-worker/values-stage.yaml`
+- `deploy/helm/supply-chain-worker/values-prod.yaml`
+
+Use the overlay that matches the target environment. Example for stage:
+
+```bash
+helm upgrade --install supply-chain-worker deploy/helm/supply-chain-worker \
+	--namespace supply-chain \
+	--create-namespace \
+	-f deploy/helm/supply-chain-worker/values-stage.yaml \
+	--set image.repository="$ECR_REPOSITORY_URL" \
+	--set image.tag="$IMAGE_TAG" \
+	--set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$SQS_WORKER_IRSA_ROLE_ARN" \
+	--set config.AWS_REGION="us-east-1" \
+	--set config.SQS_QUEUE_URL="$SQS_QUEUE_URL" \
+	--set secretRef.name="supply-chain-agent-secrets"
+```
+
+### 4) Validate the chart before deploy
+
+```bash
+helm lint deploy/helm/supply-chain-worker -f deploy/helm/supply-chain-worker/values.yaml
+helm lint deploy/helm/supply-chain-worker -f deploy/helm/supply-chain-worker/values-dev.yaml
+helm lint deploy/helm/supply-chain-worker -f deploy/helm/supply-chain-worker/values-stage.yaml
+helm lint deploy/helm/supply-chain-worker -f deploy/helm/supply-chain-worker/values-prod.yaml
+
+helm template supply-chain-worker deploy/helm/supply-chain-worker \
+	-f deploy/helm/supply-chain-worker/values-prod.yaml
+```
+
+### 5) Security and rollout defaults
+
+The Helm chart now ships with these defaults:
+
+- Rolling updates with `maxUnavailable: 0` and `maxSurge: 1`
+- `replicaCount: 2` by default for safer upgrades, `3` in the prod overlay
+- `startupProbe`, `readinessProbe`, and `livenessProbe`
+- `preStop` hook and `terminationGracePeriodSeconds` for cleaner shutdowns
+- `PodDisruptionBudget` enabled by default
+- Pod and container security contexts with non-root execution, dropped Linux capabilities, and `RuntimeDefault` seccomp
+- `NetworkPolicy` enabled by default with DNS egress plus HTTPS-only egress rules unless you narrow destinations further
+
+For this worker, inbound traffic is not required by default:
+
+- `service.enabled: false`
+- `ingress.enabled: false`
+
+If you later expose an HTTP health, metrics, or admin endpoint, enable `service.enabled` and optionally `ingress.enabled` in the appropriate values file.
+
+### 6) Send an event to SQS and verify
 
 ```bash
 aws sqs send-message --queue-url "$SQS_QUEUE_URL" --region us-east-1 --message-body '{"erp_alert":"Supplier X delayed shipment due to weather. Impact: $60,000.","sales_history":[120,132,128,140,138],"lead_time":2}'
@@ -99,6 +159,16 @@ aws sqs send-message --queue-url "$SQS_QUEUE_URL" --region us-east-1 --message-b
 kubectl get deploy -n supply-chain
 kubectl get pods -n supply-chain -l app.kubernetes.io/name=supply-chain-worker
 kubectl logs -n supply-chain deploy/supply-chain-worker-supply-chain-worker --tail=200
+```
+
+You can also inspect rendered manifests locally:
+
+```bash
+helm template supply-chain-worker deploy/helm/supply-chain-worker \
+	-f deploy/helm/supply-chain-worker/values-prod.yaml >/tmp/supply-chain-rendered-prod.yaml
+
+wc -l /tmp/supply-chain-rendered-prod.yaml
+rg '^kind: ' /tmp/supply-chain-rendered-prod.yaml
 ```
 
 ## Project Structure

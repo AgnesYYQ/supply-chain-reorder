@@ -1,0 +1,15 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "supply-chain-worker.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "supply-chain-worker.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "supply-chain-worker.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+{{- end }}
