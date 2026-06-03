@@ -10,6 +10,10 @@
 {{- end -}}
 {{- end -}}
 
+{{- define "supply-chain-worker.namespace" -}}
+{{- default .Release.Namespace .Values.namespace.name -}}
+{{- end -}}
+
 {{- define "supply-chain-worker.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create -}}
 {{- default (include "supply-chain-worker.fullname" .) .Values.serviceAccount.name -}}

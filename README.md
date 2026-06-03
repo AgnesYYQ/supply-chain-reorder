@@ -53,7 +53,7 @@ Important prerequisites:
 - This repo does not provision the EKS cluster itself.
 - Terraform expects an existing EKS cluster OIDC provider ARN and URL for IRSA.
 - The Helm chart is designed for an SQS-driven worker, so `Service` and `Ingress` are disabled by default.
-- The chart now includes rolling updates, readiness/liveness/startup probes, `NetworkPolicy`, `PodDisruptionBudget`, and pod/container security context defaults.
+- The chart now includes rolling updates, readiness/liveness/startup probes, `NetworkPolicy`, `PodDisruptionBudget`, `ResourceQuota`, `LimitRange`, and pod/container security context defaults.
 
 ### 1) Provision AWS infrastructure with Terraform
 
@@ -139,15 +139,22 @@ The Helm chart now ships with these defaults:
 - Rolling updates with `maxUnavailable: 0` and `maxSurge: 1`
 - `replicaCount: 2` by default for safer upgrades, `3` in the prod overlay
 - `startupProbe`, `readinessProbe`, and `livenessProbe`
-- `preStop` hook and `terminationGracePeriodSeconds` for cleaner shutdowns
+- `preStop` hook and `terminationGracePeriodSeconds` for cleaner shutdowns and connection draining during pod termination
 - `PodDisruptionBudget` enabled by default
 - Pod and container security contexts with non-root execution, dropped Linux capabilities, and `RuntimeDefault` seccomp
 - `NetworkPolicy` enabled by default with DNS egress plus HTTPS-only egress rules unless you narrow destinations further
+- `ResourceQuota` and `LimitRange` enabled by default to put namespace-level guardrails around CPU, memory, and pod counts
 
 For this worker, inbound traffic is not required by default:
 
 - `service.enabled: false`
 - `ingress.enabled: false`
+
+Namespace governance notes:
+
+- `ResourceQuota` and `LimitRange` are rendered into the Helm release namespace by default.
+- A `Namespace` manifest is available but disabled by default through `namespace.create: false`.
+- If you want Helm to manage the namespace object too, set `namespace.create=true` and keep the Helm release namespace aligned with `namespace.name`.
 
 If you later expose an HTTP health, metrics, or admin endpoint, enable `service.enabled` and optionally `ingress.enabled` in the appropriate values file.
 

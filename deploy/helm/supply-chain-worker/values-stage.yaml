@@ -3,6 +3,14 @@ replicaCount: 2
 config:
   APP_ENV: stage
 
+
+resourceQuota:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    limits.cpu: "4"
+    limits.memory: 8Gi
+    pods: "15"
 service:
   enabled: false
 

@@ -12,6 +12,14 @@ ingress:
 podDisruptionBudget:
   enabled: false
 
+resourceQuota:
+  hard:
+    requests.cpu: "1"
+    requests.memory: 2Gi
+    limits.cpu: "3"
+    limits.memory: 6Gi
+    pods: "10"
+
 resources:
   requests:
     cpu: 250m

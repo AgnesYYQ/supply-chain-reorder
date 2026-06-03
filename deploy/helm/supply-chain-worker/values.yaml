@@ -6,14 +6,14 @@ replicaCount: 2
 deployment:
   minReadySeconds: 10
   revisionHistoryLimit: 10
-  terminationGracePeriodSeconds: 60
+  terminationGracePeriodSeconds: 90
   rollingUpdate:
     maxUnavailable: 0
     maxSurge: 1
   lifecycle:
     preStop:
       enabled: true
-      sleepSeconds: 20
+      sleepSeconds: 25
   startupProbe:
     exec:
       command: ["python", "-c", "import src.sqs_worker"]
@@ -39,6 +39,36 @@ image:
   repository: YOUR_AWS_ACCOUNT_ID.dkr.ecr.YOUR_REGION.amazonaws.com/supply-chain-reorder
   tag: latest
   pullPolicy: IfNotPresent
+
+namespace:
+  create: false
+  name: ""
+  labels: {}
+  annotations: {}
+
+resourceQuota:
+  enabled: true
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    pods: "20"
+
+limitRange:
+  enabled: true
+  defaults:
+    cpu: 1000m
+    memory: 2Gi
+  defaultRequest:
+    cpu: 250m
+    memory: 512Mi
+  max:
+    cpu: 2
+    memory: 4Gi
+  min:
+    cpu: 100m
+    memory: 256Mi
 
 service:
   enabled: false
