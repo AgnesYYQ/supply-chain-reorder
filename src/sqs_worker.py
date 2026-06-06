@@ -1,10 +1,16 @@
 import json
 import logging
 import os
+import sys
 import time
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
+
+# Ensure the project root is on the path
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 from src.multi_agent_supply_chain import MultiAgentSupplyChain
 

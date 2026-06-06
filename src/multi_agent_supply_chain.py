@@ -91,21 +91,188 @@ def agent_planner(state: dict, **kwargs):
     state["best_option"] = "reroute_logistics"
     state["disruption_cost"] = state["disruption"]["cost"]
     state.setdefault("decision_log", []).append(
-        f"Planner: Evaluated options, cost={state['disruption_cost']}"
+        f"Planner: Evaluated options, recommended 'reroute_logistics', cost={state['disruption_cost']}"
     )
     return state
 
-# --- Agent D: Communicator ---
-def agent_communicator(state: dict, **kwargs):
-    # Draft human-in-the-loop approval
-    state["approval_required"] = True
-    state.setdefault("decision_log", []).append("Communicator: Drafted approval request.")
+# --- Agent D: Second Opinion (independent analysis) ---
+def agent_second_opinion(state: dict, **kwargs):
+    """
+    Independent agent that scores each mitigation option across multiple
+    dimensions to produce a genuinely independent recommendation.
+
+    Scoring factors (each 0-10):
+      - cost_effectiveness: Minimises financial impact
+      - speed: How fast the option restores operations
+      - long_term_viability: Whether it prevents repeat disruptions
+      - risk: Low risk of negative side effects (inverted — higher = safer)
+
+    The Second Opinion uses deliberately different weighting than the Planner
+    so it can disagree intelligently rather than just at a threshold boundary.
+    """
+    disruption = state.get("disruption", {})
+    cost = disruption.get("cost", 0)
+    disruption_type = disruption.get("type", "supplier_delay")
+
+    # --- Score each candidate option independently ---
+    options = {
+        "reroute_logistics": {
+            "cost_effectiveness": 8 if cost < 30000 else 4,
+            "speed": 9,
+            "long_term_viability": 3,
+            "risk": 8,
+        },
+        "change_supplier": {
+            "cost_effectiveness": 3 if cost < 20000 else 7,
+            "speed": 2,
+            "long_term_viability": 9,
+            "risk": 5,
+        },
+    }
+
+    # Dynamically add options based on disruption context
+    if disruption_type == "supplier_delay":
+        options["expedite_shipping"] = {
+            "cost_effectiveness": 5,
+            "speed": 7,
+            "long_term_viability": 2,
+            "risk": 7,
+        }
+
+    if cost > 50000:
+        options["split_order"] = {
+            "cost_effectiveness": 6,
+            "speed": 4,
+            "long_term_viability": 6,
+            "risk": 6,
+        }
+
+    # Weights — deliberately different from what a Planner might use.
+    # Second Opinion favours long-term health over short-term speed.
+    weights = {
+        "cost_effectiveness": 0.25,
+        "speed": 0.15,
+        "long_term_viability": 0.40,
+        "risk": 0.20,
+    }
+
+    scored = {}
+    for name, dims in options.items():
+        score = sum(dims[d] * weights[d] for d in dims)
+        scored[name] = round(score, 2)
+
+    best = max(scored, key=scored.get)
+    sorted_options = sorted(scored.items(), key=lambda x: -x[1])
+
+    # Build an explainable trace
+    detail_lines = []
+    for name, s in sorted_options:
+        dims = options[name]
+        parts = " | ".join(f"{k}={dims[k]}" for k in dims)
+        detail_lines.append(f"  {name}: {s}  ({parts})")
+    detail = "\n".join(detail_lines)
+
+    reasoning = (
+        f"Scored {len(scored)} options with weights "
+        f"cost={weights['cost_effectiveness']}, speed={weights['speed']}, "
+        f"long_term={weights['long_term_viability']}, risk={weights['risk']}.\n"
+        f"{detail}\n"
+        f"→ Selected '{best}' (score={scored[best]})"
+    )
+
+    state["second_opinion"] = best
+    state["second_opinion_scores"] = scored
+    state["second_opinion_reasoning"] = reasoning
+    state.setdefault("decision_log", []).append(
+        f"Second Opinion: Recommended '{best}' (score={scored[best]}). "
+        f"Runner-up: {sorted_options[1][0]} ({sorted_options[1][1]})."
+    )
     return state
 
-# --- Agent E: Executor ---
+# --- Agent E: Reviewer (4-Eyes Principle) ---
+def agent_reviewer(state: dict, **kwargs):
+    """
+    Four-eyes check: compares Planner recommendation vs. Second Opinion.
+
+    Now considers the **score gap** from the Second Opinion's analysis:
+      - If scores are near-tied (gap < 0.5), disagreement is weak → may still
+        auto-approve for low-cost items.
+      - If scores decisively favour a different option (gap >= 1.0), the
+        disagreement is strong and always escalates.
+    """
+    planner_option = state.get("best_option", "unknown")
+    second_option = state.get("second_opinion", "unknown")
+    scores = state.get("second_opinion_scores", {})
+    cost = state.get("disruption_cost", 0)
+
+    consensus = planner_option == second_option
+    high_cost = cost > 50000
+
+    # How decisively does the Second Opinion disagree?
+    if planner_option in scores and second_option in scores and not consensus:
+        score_gap = abs(scores[planner_option] - scores[second_option])
+    else:
+        score_gap = 0.0
+
+    if consensus and not high_cost:
+        state["review_verdict"] = "approved"
+        state["review_notes"] = (
+            f"4-Eyes OK: Both recommend '{planner_option}', "
+            f"cost=${cost} within threshold."
+        )
+        state["approval_required"] = False
+
+    elif consensus and high_cost:
+        state["review_verdict"] = "escalated_high_cost"
+        state["review_notes"] = (
+            f"4-Eyes: Both agree on '{planner_option}' but cost=${cost} exceeds "
+            f"$50k threshold — escalating for human approval."
+        )
+        state["approval_required"] = True
+
+    elif not consensus and score_gap < 0.5 and not high_cost:
+        # Weak disagreement on low-cost item — still safe to auto-approve
+        state["review_verdict"] = "approved"
+        state["review_notes"] = (
+            f"4-Eyes: Planner chose '{planner_option}', Second Opinion chose "
+            f"'{second_option}' (gap={score_gap:.2f}) but cost=${cost} is low — "
+            f"near-tie, auto-approved."
+        )
+        state["approval_required"] = False
+
+    else:
+        # Strong disagreement OR high cost — escalate
+        severity = "strong" if score_gap >= 1.0 else "moderate"
+        state["review_verdict"] = "escalated_conflict"
+        state["review_notes"] = (
+            f"4-Eyes {severity.upper()} CONFLICT: Planner recommends "
+            f"'{planner_option}' but Second Opinion recommends "
+            f"'{second_option}' (score gap={score_gap:.2f}, cost=${cost}). "
+            f"Escalating for human review."
+        )
+        state["approval_required"] = True
+
+    state.setdefault("decision_log", []).append(
+        f"Reviewer (4-Eyes): {state['review_notes']}"
+    )
+    return state
+
+# --- Agent F: Communicator ---
+def agent_communicator(state: dict, **kwargs):
+    # Draft human-in-the-loop approval
+    state.setdefault("decision_log", []).append(
+        f"Communicator: Human approval requested. Verdict={state.get('review_verdict')}. "
+        f"Notes={state.get('review_notes')}"
+    )
+    return state
+
+# --- Agent G: Executor ---
 def agent_executor(state: dict, **kwargs):
-    # Auto-execute or finalize
-    state.setdefault("decision_log", []).append("Executor: Auto-executed mitigation.")
+    best_option = state.get("best_option", "unknown")
+    state.setdefault("decision_log", []).append(
+        f"Executor: Executed mitigation '{best_option}'. "
+        f"Review verdict: {state.get('review_verdict', 'N/A')}."
+    )
     return state
 
 def build_multi_agent_graph():
@@ -113,22 +280,33 @@ def build_multi_agent_graph():
     graph.add_node("ingestion", agent_ingestion)
     graph.add_node("ml_forecast", ml_forecast_agent)
     graph.add_node("planner", agent_planner)
+    graph.add_node("second_opinion", agent_second_opinion)
+    graph.add_node("reviewer", agent_reviewer)
     graph.add_node("communicator", agent_communicator)
     graph.add_node("executor", agent_executor)
 
-    # Linear flow: Ingestion -> Simulation -> Planner
+    # Linear flow: Ingestion -> ML Forecast -> Planner
     graph.add_edge("ingestion", "ml_forecast")
     graph.add_edge("ml_forecast", "planner")
 
-    # Conditional: If cost > 50k, go to Communicator, else Executor
-    def planner_router(state: dict, **kwargs):
-        if state.get("disruption_cost", 0) > 50000:
-            return "communicator"
-        else:
+    # Planner -> Second Opinion (independent parallel analysis)
+    graph.add_edge("planner", "second_opinion")
+
+    # Second Opinion -> Reviewer (4-Eyes)
+    graph.add_edge("second_opinion", "reviewer")
+
+    # Reviewer conditional: if 4-eyes approved, go directly to Executor.
+    # Otherwise (conflict or high-cost) escalate to Communicator.
+    def reviewer_router(state: dict, **kwargs):
+        verdict = state.get("review_verdict", "escalated_conflict")
+        if verdict == "approved":
             return "executor"
-    graph.add_conditional_edges("planner", planner_router, {
+        else:
+            return "communicator"
+
+    graph.add_conditional_edges("reviewer", reviewer_router, {
+        "executor": "executor",
         "communicator": "communicator",
-        "executor": "executor"
     })
 
     # After Communicator, always go to Executor

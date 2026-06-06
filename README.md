@@ -4,33 +4,169 @@ An agentic AI system to help supply chain planners decide how much inventory to 
 
 ## Features
 - LangGraph workflow for modular, extensible agent logic
-- Nodes for data ingestion (API/vector DB), ML forecasting (API), optimization, human review, and execution
-- State management for explainability and traceability
+- **Second Opinion agent** — independent multi-factor scoring of mitigation options with deliberately different weighting than the Planner
+- **4-Eyes Principle (Reviewer)** — automated comparison of Planner vs Second Opinion; escalates to human approval on disagreement or high cost
+- Nodes for data ingestion (vector DB), ML forecasting (LSTM), planning, independent review, human-in-the-loop approval, and execution
+- Explainable decision trace with per-option scores, score gaps, and verdict reasons
 - Ready for integration with ERP APIs, ML models, and data sources
-- Configurable business rules
+- Configurable business rules and scoring thresholds
 - Unit tests and production-ready structure
 
 ## Workflow Overview
 
 The agent is orchestrated by LangGraph. The logical flow is:
 
-1. **Data Ingestion**: Parses disruption input and stores embedded chunks in Chroma
-2. **ML Forecasting**: Retrieves vector context and optionally forecasts demand from `sales_history`
-3. **Planner**: Chooses a mitigation path and records disruption cost
-4. **Review**: Flags expensive disruptions for human approval
-5. **Execution**: Finalizes mitigation execution and logs the outcome
+```mermaid
+flowchart LR
+    A[Ingestion] --> B[ML Forecast]
+    B --> C[Planner]
+    C --> D[Second Opinion]
+    D --> E[Reviewer 4-Eyes]
+    E -->|approved| G[Executor]
+    E -->|escalated| F[Communicator]
+    F --> G
+```
 
-All calculations and decisions are logged for explainability. You can extend any node to connect to real APIs, databases, or ML endpoints as needed.
+1. **Data Ingestion**: Parses disruption input (ERP alert) and stores embedded chunks in Chroma vector DB
+2. **ML Forecasting**: Retrieves vector context and optionally forecasts demand from `sales_history` using an LSTM neural network (or fallback mean)
+3. **Planner**: Chooses a mitigation path (`reroute_logistics` by default) and records disruption cost
+4. **Second Opinion**: Independently evaluates all available mitigation options using a **multi-factor scoring model** (cost_effectiveness, speed, long_term_viability, risk) with deliberately different weighting from the Planner — this creates genuine, explainable disagreement rather than a simple threshold check
+5. **Reviewer (4-Eyes Principle)**: Compares the Planner's recommendation against the Second Opinion's scores. If they agree and the cost is within threshold → auto-approves. If they disagree or the cost is high → escalates for human review. The Reviewer also considers the **score gap**: weak disagreements (near-tied scores) on low-cost items may still be auto-approved
+6. **Communicator**: Drafts a human-in-the-loop approval request when the 4-Eyes check escalates
+7. **Executor**: Executes the chosen mitigation and logs the final outcome
+
+### 4-Eyes Decision Matrix
+
+| Planner vs Second Opinion | Cost ≤ $50k | Cost > $50k |
+|---------------------------|-------------|-------------|
+| **Consensus** | ✅ Auto-approve → Executor | ⚠️ Escalate → Communicator |
+| **Weak disagreement** (gap < 0.5) | ✅ Auto-approve → Executor | ⚠️ Escalate → Communicator |
+| **Strong disagreement** (gap ≥ 1.0) | ⚠️ Escalate → Communicator | ⚠️ Escalate → Communicator |
+
+All calculations, scores, and decisions are logged in the decision trace for full explainability. You can extend any node to connect to real APIs, databases, or ML endpoints as needed.
+
+### Decision Trace Example
+
+When the agent runs, it produces an explainable trace. For a $60k supplier delay:
+
+```
+Second Opinion: Recommended 'change_supplier' (score=6.65). Runner-up: split_order (5.7).
+Reviewer (4-Eyes): 4-Eyes STRONG CONFLICT: Planner recommends 'reroute_logistics'
+  but Second Opinion recommends 'change_supplier' (score gap=1.50, cost=$60000).
+  Escalating for human review.
+Communicator: Human approval requested. Verdict=escalated_conflict.
+```
+
+## Project Structure
+
+```
+src/              # Agent logic, LangGraph workflow, state management
+tests/            # Unit tests
+config/           # Configuration files
+deploy/helm/      # Helm chart for Kubernetes worker deployment
+infra/terraform/  # Terraform for AWS infrastructure and IRSA
+.github/          # Copilot instructions
+```
+
+## Infrastructure Diagram
+
+This diagram shows the runtime components: the input, embedding layer, vector store, graph execution, second opinion, 4-eyes check, and final decision log.
+
+```mermaid
+flowchart LR
+	ERP["ERP Alert / Sales Input"] --> ING["Ingestion Node"]
+	ING --> EMB["SentenceTransformer Embeddings"]
+	EMB --> CHR["Chroma Vector DB"]
+	ING --> FLOW["LangGraph StateGraph"]
+	CHR --> ML["ML Forecast Node"]
+	FLOW --> ML
+	ML --> PLN["Planner Node"]
+	PLN --> OP["Second Opinion Node"]
+	OP --> REV["Reviewer 4-Eyes"]
+	REV -->|approved| EXE["Executor Node"]
+	REV -->|escalated| COM["Communicator Node"]
+	COM --> EXE
+	EXE --> LOG["Decision Log / Final State"]
+	LOG -.->|Explainability| FLOW
+	style ERP fill:#d9edf7,stroke:#1b4d72,stroke-width:1.5px,color:#111
+	style CHR fill:#e8f5e9,stroke:#2e7d32,stroke-width:1.5px,color:#111
+	style FLOW fill:#fff3cd,stroke:#8a6d3b,stroke-width:1.5px,color:#111
+	style REV fill:#f8d7da,stroke:#721c24,stroke-width:1.5px,color:#111
+	style LOG fill:#fce4ec,stroke:#ad1457,stroke-width:1.5px,color:#111
+```
+
+## State Diagram
+
+This diagram shows the logical decision path inside the LangGraph workflow, including the independent second opinion and the 4-eyes review gate.
+
+```mermaid
+flowchart TD
+	A["Data Ingestion"] --> B["ML Forecast"]
+	B --> C["Planner"]
+	C --> D["Second Opinion (Multi-Factor Scoring)"]
+	D --> E["Reviewer (4-Eyes)"]
+	E -->|approved| F["Executor"]
+	E -->|escalated: conflict or high cost| G["Communicator (Human Approval)"]
+	G --> F
+	F --> H["Decision Log"]
+	H -.->|Explainability| A
+	style H fill:#f9f,stroke:#222,stroke-width:2px,color:#111
+	style G fill:#ff9,stroke:#222,stroke-width:2px,color:#111
+	style E fill:#f8d7da,stroke:#721c24,stroke-width:1.5px,color:#111
+	style D fill:#e2e3f8,stroke:#373a8a,stroke-width:1.5px,color:#111
+	style A fill:#bbf,stroke:#222,stroke-width:2px,color:#111
+	style B fill:#bbf,stroke:#222,stroke-width:2px,color:#111
+	style C fill:#bbf,stroke:#222,stroke-width:2px,color:#111
+	style F fill:#bbf,stroke:#222,stroke-width:2px,color:#111
+```
+
+## Extending the Multi-Agent Workflow
+
+The code in `src/multi_agent_supply_chain.py` is organized around these nodes:
+
+- `agent_ingestion`: parses disruption input and stores embedded chunks in Chroma
+- `ml_forecast_agent`: retrieves vector context and produces a forecast when sales history is available
+- `agent_planner`: chooses the mitigation path (`reroute_logistics` by default) and computes disruption cost
+- `agent_second_opinion`: independently scores all mitigation options across multiple dimensions (cost_effectiveness, speed, long_term_viability, risk) using deliberately different weighting than the Planner
+- `agent_reviewer`: compares Planner vs Second Opinion; auto-approves on consensus with low cost, or escalates to Communicator on disagreement / high cost
+- `agent_communicator`: flags approvals for human review when the 4-Eyes check escalates
+- `agent_executor`: finalizes mitigation execution
+
+### Example Forecast Path
+
+If you want to exercise the forecast branch, seed the agent with `sales_history` and `lead_time` before calling `run()`:
+
+```python
+from src.multi_agent_supply_chain import MultiAgentSupplyChain
+
+agent = MultiAgentSupplyChain()
+agent.state = {
+	"sales_history": [120, 132, 128, 140, 138],
+	"lead_time": 2,
+	"decision_log": []
+}
+agent.run()
+
+print(agent.state.get("forecast"))
+print(agent.state.get("decision_log"))
+```
+
+If TensorFlow is installed, the forecast node will try an LSTM-based prediction. Otherwise, it falls back to the mean of the most recent `lead_time` sales values.
 
 ## Setup
+
 1. Clone the repo
 2. Install dependencies: `pip install -r requirements.txt`
 3. Configure settings in `config/`
 4. Run the agent: `python src/main.py`
 
+## Usage
+
+Edit `config/` for your environment and run the agent. See `src/main.py` for the entry point and flow.
+
 ## Container Packaging
 
-This repo now includes a `Dockerfile` for packaging the agent as a container image.
+This repo includes a `Dockerfile` for packaging the agent as a container image.
 
 Build locally:
 
@@ -178,7 +314,7 @@ kubectl label nodes <gpu-node-name> node.kubernetes.io/instance-type=g5.xlarge
 
 The chart supports this through `nodeSelector`, `tolerations`, and `affinity`. An example overlay is provided in `deploy/helm/supply-chain-worker/values-gpu.yaml`.
 
-Deploy with it like this:
+Deploy with GPU overlay:
 
 ```bash
 helm upgrade --install supply-chain-worker deploy/helm/supply-chain-worker \
@@ -219,93 +355,6 @@ helm template supply-chain-worker deploy/helm/supply-chain-worker \
 wc -l /tmp/supply-chain-rendered-prod.yaml
 rg '^kind: ' /tmp/supply-chain-rendered-prod.yaml
 ```
-
-## Project Structure
-- `src/` – Agent logic, LangGraph workflow, state management
-- `tests/` – Unit tests
-- `config/` – Configuration files
-- `deploy/helm/` – Helm chart for Kubernetes worker deployment
-- `infra/terraform/` – Terraform for AWS infrastructure and IRSA
-- `.github/` – Copilot instructions
-
-## Infrastructure Diagram
-
-This diagram shows the runtime components: the input, embedding layer, vector store, graph execution, and final decision log.
-
-```mermaid
-flowchart LR
-	ERP["ERP Alert / Sales Input"] --> ING["Ingestion Node"]
-	ING --> EMB["SentenceTransformer Embeddings"]
-	EMB --> CHR["Chroma Vector DB"]
-	ING --> FLOW["LangGraph StateGraph"]
-	CHR --> ML["ML Forecast Node"]
-	FLOW --> ML
-	ML --> PLN["Planner Node"]
-	PLN -->|cost > 50k| COM["Communicator Node"]
-	PLN -->|cost <= 50k| EXE["Executor Node"]
-	COM --> EXE
-	EXE --> LOG["Decision Log / Final State"]
-	LOG -.->|Explainability| FLOW
-	style ERP fill:#d9edf7,stroke:#1b4d72,stroke-width:1.5px,color:#111
-	style CHR fill:#e8f5e9,stroke:#2e7d32,stroke-width:1.5px,color:#111
-	style FLOW fill:#fff3cd,stroke:#8a6d3b,stroke-width:1.5px,color:#111
-	style LOG fill:#fce4ec,stroke:#ad1457,stroke-width:1.5px,color:#111
-```
-
-## State Diagram
-
-This diagram shows the logical decision path inside the LangGraph workflow.
-
-```mermaid
-flowchart TD
-	A["Data Ingestion (API/Vector DB)"] --> B["ML Forecast (API)"]
-	B --> C["Planner"]
-	C -->|cost > 50k| D["Review (Human Approval)"]
-	C -->|cost <= 50k| E["Execute (ERP API)"]
-	D --> E
-	E --> F["State/Decision Log"]
-	F -.->|Explainability| A
-	style F fill:#f9f,stroke:#222,stroke-width:2px,color:#111
-	style D fill:#ff9,stroke:#222,stroke-width:2px,color:#111
-	style A fill:#bbf,stroke:#222,stroke-width:2px,color:#111
-	style B fill:#bbf,stroke:#222,stroke-width:2px,color:#111
-	style C fill:#bbf,stroke:#222,stroke-width:2px,color:#111
-	style E fill:#bbf,stroke:#222,stroke-width:2px,color:#111
-```
-
-## Extending the Multi-Agent Workflow
-
-The code in `src/multi_agent_supply_chain.py` is organized around these nodes:
-
-- `agent_ingestion`: parses disruption input and stores embedded chunks in Chroma
-- `ml_forecast_agent`: retrieves vector context and produces a forecast when sales history is available
-- `agent_planner`: chooses the mitigation path and computes disruption cost
-- `agent_communicator`: flags approvals for human review when the disruption is expensive
-- `agent_executor`: finalizes mitigation execution
-
-## Example Forecast Path
-
-If you want to exercise the forecast branch, seed the agent with `sales_history` and `lead_time` before calling `run()`:
-
-```python
-from src.multi_agent_supply_chain import MultiAgentSupplyChain
-
-agent = MultiAgentSupplyChain()
-agent.state = {
-	"sales_history": [120, 132, 128, 140, 138],
-	"lead_time": 2,
-	"decision_log": []
-}
-agent.run()
-
-print(agent.state.get("forecast"))
-print(agent.state.get("decision_log"))
-```
-
-If TensorFlow is installed, the forecast node will try an LSTM-based prediction. Otherwise, it falls back to the mean of the most recent `lead_time` sales values.
-
-## Usage
-Edit `config/` for your environment and run the agent. See `src/main.py` for the entry point and flow.
 
 ## License
 MIT
